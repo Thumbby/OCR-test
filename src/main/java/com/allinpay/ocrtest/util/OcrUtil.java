@@ -46,9 +46,9 @@ public class OcrUtil {
                 // 将PDF页面渲染为图片
                 BufferedImage image = renderer.renderImageWithDPI(page, 300);
                 // 去除红色图章
-                image = removeRedStamp(image);
+                image = preprocessImage(image);
                 // 使用Tesseract识别图片中的文字
-                String text = tesseract.doOCR(image).replace(" ", "");
+                String text = tesseract.doOCR(image).replace(" ", "").replace("\n\n", "\n");
                 result.add(text);
             }
 
@@ -61,86 +61,64 @@ public class OcrUtil {
         return null;
     }
 
-    /**
-     * 去除图片中的红色图章（使用颜色通道分离和阈值分割）
-     */
-    private BufferedImage removeRedStamp(BufferedImage image) {
+    private BufferedImage preprocessImage(BufferedImage image) {
         try {
-            // 将BufferedImage转换为3BYTE_BGR格式
-            BufferedImage convertedImage = new BufferedImage(
-                    image.getWidth(),
-                    image.getHeight(),
-                    BufferedImage.TYPE_3BYTE_BGR
-            );
-            convertedImage.getGraphics().drawImage(image, 0, 0, null);
-
-            // 获取像素数据
-            byte[] data = ((DataBufferByte) convertedImage.getRaster().getDataBuffer()).getData();
-            Mat src = new Mat(convertedImage.getHeight(), convertedImage.getWidth(), CvType.CV_8UC3);
-            src.put(0, 0, data);
-
-            // 分离RGB通道
+            Mat src = bufferedImageToMat(image);
             List<Mat> channels = new ArrayList<>();
             Core.split(src, channels);
             Mat redChannel = channels.get(2);  // BGR格式下，索引2是红色通道
-            Mat greenChannel = channels.get(1);
-            Mat blueChannel = channels.get(0);
 
-            // 计算红色与其他颜色的差异（红色 - 绿色/2 - 蓝色/2）
-            Mat redMinusGreen = new Mat();
-            Mat redMinusBlue = new Mat();
-            Core.subtract(redChannel, greenChannel, redMinusGreen);
-            Core.subtract(redChannel, blueChannel, redMinusBlue);
+            // 1. 对R通道进行自适应阈值二值化
+            Mat binary = new Mat();
+            Imgproc.adaptiveThreshold(redChannel, binary, 255,
+                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    Imgproc.THRESH_BINARY, 11, 2);
 
-            // 合并差异
-            Mat redDominance = new Mat();
-            Core.add(redMinusGreen, redMinusBlue, redDominance);
+            // 2.中值滤波
+            Mat denoised = new Mat();
+            Imgproc.medianBlur(binary, denoised, 3);
 
-            // 应用阈值分割
-            Mat mask = new Mat();
-            Imgproc.threshold(redDominance, mask, 50, 255, Imgproc.THRESH_BINARY);
+            // 3.高斯模糊降噪
+            Imgproc.GaussianBlur(denoised, denoised, new Size(3, 3), 0);
 
-            // 对掩码进行形态学操作，去除噪点
-            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(3, 3));
-            Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, kernel);
-            Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, kernel);
+            // 4.双边滤波
+            Mat result = new Mat();
+            Imgproc.bilateralFilter(denoised, result, 9, 75, 75);
 
-            // 将红色区域替换为白色
-            Mat result = src.clone();
-            for (int i = 0; i < result.rows(); i++) {
-                for (int j = 0; j < result.cols(); j++) {
-                    if (mask.get(i, j)[0] > 0) {
-                        result.put(i, j, 255, 255, 255); // 替换为白色
-                    }
-                }
-            }
-
-            // 将Mat转换回BufferedImage
-            BufferedImage processedImage = new BufferedImage(
-                    result.cols(),
-                    result.rows(),
-                    BufferedImage.TYPE_3BYTE_BGR
-            );
-            byte[] data1 = new byte[result.cols() * result.rows() * 3];
-            result.get(0, 0, data1);
-            byte[] targetPixels = ((DataBufferByte) processedImage.getRaster().getDataBuffer()).getData();
-            System.arraycopy(data1, 0, targetPixels, 0, data1.length);
-
-            // 释放资源
-            for (Mat channel : channels) {
-                channel.release();
-            }
-            redMinusGreen.release();
-            redMinusBlue.release();
-            redDominance.release();
-            mask.release();
-            result.release();
-            src.release();
-
-            return processedImage;
+            return matToBufferedImage(result);
         } catch (Exception e) {
-            logger.error("处理图片时出错: ", e);
+            logger.error("图像预处理失败: ", e);
             return image;
         }
+    }
+
+    // BufferedImage转Mat
+    private Mat bufferedImageToMat(BufferedImage bi) {
+        // 将BufferedImage转换为TYPE_3BYTE_BGR格式
+        BufferedImage convertedImage = new BufferedImage(
+                bi.getWidth(),
+                bi.getHeight(),
+                BufferedImage.TYPE_3BYTE_BGR
+        );
+        convertedImage.getGraphics().drawImage(bi, 0, 0, null);
+
+        // 获取像素数据
+        byte[] pixels = ((DataBufferByte) convertedImage.getRaster().getDataBuffer()).getData();
+
+        // 创建Mat对象
+        Mat mat = new Mat(bi.getHeight(), bi.getWidth(), CvType.CV_8UC3);
+        mat.put(0, 0, pixels);
+
+        return mat;
+    }
+
+    // Mat转BufferedImage
+    private BufferedImage matToBufferedImage(Mat mat) {
+        BufferedImage image = new BufferedImage(mat.width(), mat.height(),
+                mat.channels() == 1 ? BufferedImage.TYPE_BYTE_GRAY : BufferedImage.TYPE_3BYTE_BGR);
+        byte[] data = new byte[mat.width() * mat.height() * (int)mat.elemSize()];
+        mat.get(0, 0, data);
+        image.getRaster().setDataElements(0, 0, mat.width(), mat.height(), data);
+        return image;
     }
 }
