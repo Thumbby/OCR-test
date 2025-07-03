@@ -64,15 +64,15 @@ public class OcrUtil {
     private BufferedImage preprocessImage(BufferedImage image) {
         try {
             Mat src = bufferedImageToMat(image);
+
+            // 取红色通道
             List<Mat> channels = new ArrayList<>();
             Core.split(src, channels);
-            Mat redChannel = channels.get(2);  // BGR格式下，索引2是红色通道
+            Mat redChannel = channels.get(2);
 
             // 1. 对R通道进行自适应阈值二值化
             Mat binary = new Mat();
-            Imgproc.adaptiveThreshold(redChannel, binary, 255,
-                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    Imgproc.THRESH_BINARY, 11, 2);
+            Imgproc.threshold(redChannel, binary, 0, 255, Imgproc.THRESH_BINARY | Imgproc.THRESH_OTSU);
 
             // 2.中值滤波
             Mat denoised = new Mat();

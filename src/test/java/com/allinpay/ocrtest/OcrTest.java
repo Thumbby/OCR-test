@@ -1,6 +1,5 @@
-package com.ocrtest;
+package com.allinpay.ocrtest;
 
-import com.allinpay.ocrtest.OcRtestApplication;
 import com.allinpay.ocrtest.util.OcrUtil;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -20,7 +19,7 @@ public class OcrTest {
 
     @Test
     public void ocrTest() {
-        String filePath = "testfile.pdf";
+        String filePath = "C:\\Users\\Thumbby\\Desktop\\二代开通产品资料\\二代开通产品资料\\商服服务平台系统服务协议.pdf";
         List<String> result = ocrUtil.printPDF(filePath);
         result.forEach(logger::info);
     }
