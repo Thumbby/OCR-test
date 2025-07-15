@@ -19,7 +19,7 @@ public class OcrTest {
 
     @Test
     public void ocrTest() {
-        String filePath = "C:\\Users\\Thumbby\\Desktop\\二代开通产品资料\\二代开通产品资料\\商服服务平台系统服务协议.pdf";
+        String filePath = "";
         List<String> result = ocrUtil.printPDF(filePath);
         result.forEach(logger::info);
     }
